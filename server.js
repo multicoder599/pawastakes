@@ -14,35 +14,38 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-// 🚨 1. CORS MUST BE FIRST 🚨
+// 🚨 1. CORS MUST BE FIRST (Single Unified Definition) 🚨
 app.use(cors({
-    origin: ['https://pawastakes.com', 'https://www.pawastakes.com'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    origin: [
+        'https://pawastakes.com',
+        'http://pawastakes.com',
+        'https://www.pawastakes.com',
+        'https://pawastakesadmin.vercel.app'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
+    optionsSuccessStatus: 200
 }));
 
 // 🚨 2. Security and Parsers go NEXT 🚨
 app.use(helmet());
 app.use(express.json());
 
+// Express Query Object Re-definition Fix
 app.use((req, res, next) => {
     Object.defineProperty(req, 'query', {
         value: { ...req.query },
-        writable: true, configurable: true, enumerable: true
+        writable: true, 
+        configurable: true, 
+        enumerable: true
     });
     next();
 });
 
+// NoSQL Injection Protection
 app.use(mongoSanitize());
-
-app.use(cors({
-    origin: ['https://pawastakes.com', 'http://pawastakes.com', 'https://www.pawastakes.com', 'https://pawastakesadmin.vercel.app'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
+ 
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, max: 200,
     message: { error: "Too many requests from this IP, please try again later." }
