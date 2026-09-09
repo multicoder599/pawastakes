@@ -14,16 +14,36 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-// 🚨 1. CORS MUST BE FIRST 🚨
+// 🚨 1. CORS MUST BE FIRST (Single, Consolidated Config) 🚨
+const allowedOrigins = [
+    'https://pawastakes.com',
+    'http://pawastakes.com',
+    'https://www.pawastakes.com',
+    'https://pawastakesadmin.vercel.app'
+];
+
 app.use(cors({
-    origin: ['https://pawastakes.com', 'https://www.pawastakes.com'],
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('CORS policy violation'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    optionsSuccessStatus: 200
 }));
 
+// Explicitly handle Preflight OPTIONS requests for all routes
+app.options('*', cors());
+
 // 🚨 2. Security and Parsers go NEXT 🚨
-app.use(helmet());
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -35,13 +55,6 @@ app.use((req, res, next) => {
 });
 
 app.use(mongoSanitize());
-
-app.use(cors({
-    origin: ['https://pawastakes.com', 'http://pawastakes.com', 'https://www.pawastakes.com', 'https://pawastakesadmin.vercel.app'],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
-}));
 
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, max: 200,
