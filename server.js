@@ -14,7 +14,7 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-// 🚨 1. CORS MUST BE FIRST (Single, Consolidated Config) 🚨
+// 🚨 1. CORS CONFIGURATION (Single, Consolidated Config) 🚨
 const allowedOrigins = [
     'https://pawastakes.com',
     'http://pawastakes.com',
@@ -36,10 +36,10 @@ app.use(cors({
     optionsSuccessStatus: 200
 }));
 
-// Explicitly handle Preflight OPTIONS requests for all routes
-app.options('*', cors());
+// Handle Preflight OPTIONS requests (using regex string to avoid path-to-regexp v8+ crashes)
+app.options('(.*)', cors());
 
-// 🚨 2. Security and Parsers go NEXT 🚨
+// 🚨 2. Security and Parsers 🚨
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
@@ -57,7 +57,8 @@ app.use((req, res, next) => {
 app.use(mongoSanitize());
 
 const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, max: 200,
+    windowMs: 15 * 60 * 1000, 
+    max: 200,
     message: { error: "Too many requests from this IP, please try again later." }
 });
 app.use('/api/', apiLimiter);
