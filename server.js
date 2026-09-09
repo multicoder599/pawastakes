@@ -36,9 +36,6 @@ app.use(cors({
     optionsSuccessStatus: 200
 }));
 
-// Handle Preflight OPTIONS requests (using regex string to avoid path-to-regexp v8+ crashes)
-app.options('(.*)', cors());
-
 // 🚨 2. Security and Parsers 🚨
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" }
