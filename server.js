@@ -381,30 +381,86 @@ app.post('/api/deposit', async (req, res) => {
 });
 
 app.post('/api/megapay/webhook', async (req, res) => {
-    res.status(200).send("OK");
-    const data = req.body;
+    // Ack immediately — always, before any processing
+    res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
+
+    const data = req.body || {};
+    console.log('📞 MegaPay callback received:', JSON.stringify(data));
+
     try {
-        if ((data.ResponseCode !== undefined ? data.ResponseCode : data.ResultCode) != 0) return;
-        const amount = parseFloat(data.TransactionAmount || data.amount || data.Amount);
-        const receipt = data.TransactionReceipt || data.MpesaReceiptNumber;
-        const last9 = (data.Msisdn || data.phone || data.PhoneNumber || "").toString().replace(/\D/g, '').slice(-9);
-        if (last9.length < 9) return;
+        // Unwrap both Daraja format (Body.stkCallback) and flat format
+        const cb = (data.Body && data.Body.stkCallback) ? data.Body.stkCallback : data;
+        const resultCode = cb.ResultCode !== undefined ? cb.ResultCode : cb.ResponseCode;
+        console.log('ResultCode:', resultCode, '| Desc:', cb.ResultDesc || cb.message || '');
+
+        if (resultCode != 0) {
+            console.log('⚠️ Payment not completed:', cb.ResultDesc || cb.message || 'unknown reason');
+            return;
+        }
+
+        // Extract CallbackMetadata.Item array → { Name: Value } map
+        const items = ((cb.CallbackMetadata && cb.CallbackMetadata.Item) || []).reduce((acc, i) => {
+            acc[i.Name] = i.Value;
+            return acc;
+        }, {});
+
+        const amount = parseFloat(
+            items.Amount !== undefined ? items.Amount :
+            data.TransAmount !== undefined ? data.TransAmount :
+            data.TransactionAmount !== undefined ? data.TransactionAmount :
+            data.amount
+        );
+        const receipt = items.MpesaReceiptNumber || data.MpesaReceiptNumber || data.TransID || data.TransactionReceipt;
+        const phone = (items.PhoneNumber !== undefined ? items.PhoneNumber :
+                      data.MSISDN !== undefined ? data.MSISDN :
+                      data.Msisdn !== undefined ? data.Msisdn :
+                      data.PhoneNumber !== undefined ? data.PhoneNumber :
+                      data.phone || '').toString();
+
+        if (isNaN(amount) || !receipt) {
+            console.error('❌ Callback missing amount or receipt:', { amount, receipt, phone });
+            return;
+        }
+
+        const last9 = phone.replace(/\D/g, '').slice(-9);
+        if (last9.length < 9) {
+            console.error('❌ Callback has invalid phone:', phone);
+            return;
+        }
 
         const user = await User.findOne({ phone: { $regex: new RegExp(last9 + '$') } });
-        if (!user || await Transaction.findOne({ refId: receipt })) return;
+        if (!user) { console.error('❌ No user found for phone:', phone); return; }
+
+        if (await Transaction.findOne({ refId: receipt })) {
+            console.log('ℹ️ Duplicate callback, skipping:', receipt);
+            return;
+        }
 
         let bonusAmount = 0;
         if (user.currency === 'KES' && amount >= 500) {
             bonusAmount = amount; // 100% bonus
         }
-        user.balance += amount + bonusAmount; await user.save();
+        user.balance += amount + bonusAmount;
+        await user.save();
+
         await Transaction.create({ refId: receipt, userId: user._id, userPhone: user.phone, type: "Deposit", method: "M-Pesa", amount: amount, status: "Success" });
+
+        // Close out the Pending transaction created by /api/deposit (matched by user + amount)
+        await Transaction.updateMany(
+            { userId: user._id, type: 'Deposit', status: 'Pending', amount: amount },
+            { $set: { status: 'Success' } }
+        );
+
         await new Notification({ userId: user._id, title: "Deposit Successful", message: `Your deposit of KES ${amount} has been credited. Receipt: ${receipt}${bonusAmount ? '. Bonus: KES ' + bonusAmount : ''}` }).save();
         sendTelegramMessage(`💵 <b>SUCCESSFUL DEPOSIT</b>
 📱 User: ${user.phone}
 💰 Amount: KES ${amount}${bonusAmount ? '\n🎁 Bonus: KES ' + bonusAmount : ''}
 🧾 Ref: ${receipt}`, 'deposit');
-    } catch (err) {}
+
+        console.log(`✅ Credited ${amount} (+${bonusAmount} bonus) to ${user.phone}`);
+    } catch (err) {
+        console.error('❌ Webhook processing error:', err);
+    }
 });
 
 // ==========================================
